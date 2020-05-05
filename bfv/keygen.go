@@ -439,3 +439,30 @@ func genrotkey(keygen *keyGenerator, sk *ring.Poly, gen uint64) (switchkey *Swit
 
 	return
 }
+
+func (rotkey *RotationKeys) CanRotateRows() bool {
+	return rotkey.evakeyRotRow != nil
+}
+
+func (rotkey *RotationKeys) CanRotateLeft(k uint64, n uint64) bool {
+	k &= ((n >> 1) - 1)
+
+	if k == 0 {
+		return true
+	}
+
+	if rotkey.evakeyRotColLeft[k] != nil {
+		return true
+	}
+
+	// If the needed rotation key has not been generated, it looks if the left and right pow2 rotations have been generated
+	hasPow2Rotations := true
+	for i := uint64(1); i < n>>1; i <<= 1 {
+		if rotkey.evakeyRotColLeft[i] == nil || rotkey.evakeyRotColRight[i] == nil {
+			hasPow2Rotations = false
+			break
+		}
+	}
+
+	return hasPow2Rotations
+}
