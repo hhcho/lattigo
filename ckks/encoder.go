@@ -2,7 +2,7 @@ package ckks
 
 import (
 	"fmt"
-	"github.com/ldsec/distributedPCA/mpc-core"
+	"github.com/hhcho/mpc-core"
 	"github.com/ldsec/lattigo/ring"
 	"math"
 	"math/big"
@@ -17,9 +17,8 @@ type Encoder interface {
 	EncodeNew(values []complex128, slots uint64) (plaintext *Plaintext)
 	Decode(plaintext *Plaintext, slots uint64) (res []complex128)
 
-	GenerateMask(slots uint64, numBits int, prg *frand.RNG) (plaintext *Plaintext, rv mpc_core.RVec)
 	EncodeRVecNew(values mpc_core.RVec, slots uint64, fracBits int) (plaintext *Plaintext)
-	DecodeRVec(plaintext *Plaintext, slots uint64) (res mpc_core.RVec)
+	DecodeRVec(plaintext *Plaintext, slots uint64, fracBits int) (res mpc_core.RVec)
 
 	FFTTest(values []complex128, N uint64, prg *frand.RNG)
 }
@@ -290,60 +289,30 @@ func (encoder *encoder) Encode(plaintext *Plaintext, values []complex128, slots 
 	}
 }
 
-// GenerateMask generates a vector of random integers of bit length numBits for hiding encrypted values and encodes it in the receiver Plaintext.
-func (encoder *encoder) GenerateMask(slots uint64, numBits int, prg *frand.RNG) (plaintext *Plaintext, rv mpc_core.RVec) {
-	if slots == 0 && slots&(slots-1) == 0 {
-		panic("cannot Encode: slots must be a power of two between 1 and N/2")
-	}
-
-	plaintext = NewPlaintext(encoder.params, encoder.params.MaxLevel(), encoder.params.Scale)
-
-	rtype := mpc_core.LElem128Zero
-	mask := make(mpc_core.RVec, len(encoder.valuesfloat))
-	for i := range mask {
-		mask[i] = rtype.Zero()
-	}
-
-	gap := encoder.ckksContext.maxSlots / slots
-
-	for i, jdx, idx := uint64(0), encoder.ckksContext.maxSlots, uint64(0); i < slots; i, jdx, idx = i+1, jdx+gap, idx+gap {
-		mask[idx] = rtype.RandBits(prg, rtype.ModBitLength() - 4)
-		mask[jdx] = rtype.RandBits(prg, rtype.ModBitLength() - 4)
-	}
-
-	moduli := encoder.ckksContext.contextQ.Modulus[:plaintext.Level()+1]
-	var xInt *big.Int
-	tmp := new(big.Int)
-	for i := range mask {
-		xInt = mask[i].(mpc_core.LElem128).ToBigInt()
-
-		for j := range moduli {
-			tmp.Mod(xInt, ring.NewUint(moduli[j]))
-			plaintext.value.Coeffs[j][i] = tmp.Uint64()
-		}
-	}
-
-	encoder.ckksContext.contextQ.NTTLvl(plaintext.Level(), plaintext.value, plaintext.value)
-
-	rv = encoder.DecodeRVec(plaintext, slots)
-	return
-}
-
-
 func (encoder *encoder) EncodeRVecNew(values mpc_core.RVec, slots uint64, fracBits int) (plaintext *Plaintext) {
 	if uint64(len(values)) > encoder.ckksContext.maxSlots || uint64(len(values)) > slots {
 		panic("cannot EncodeRVecNew: too many values for the given number of slots")
 	}
 
-	if slots == 0 && slots&(slots-1) == 0 {
-		panic("cannot EncodeRVecNew: slots must be a power of two between 1 and N/2")
+	if slots == 0 {
+		return NewPlaintext(encoder.params, encoder.params.MaxLevel(), encoder.params.Scale)
+	}
+
+	rtype := mpc_core.LElem128Zero
+
+	if slots&(slots-1) != 0 { // slots not a power of two
+		closestPow := uint64(math.Pow(2, math.Ceil(math.Log2(float64(slots)))))
+		newValues := mpc_core.InitRVec(rtype.Zero(), int(closestPow))
+		for i := range values {
+			newValues[i] = values[i]
+		}
+		values = newValues
+		slots = closestPow
 	}
 
 	if uint64(len(values)) != slots {
 		panic("cannot EncodeRVecNew: number of values must be equal to slots")
 	}
-
-	rtype := mpc_core.LElem128Zero
 
 	if values.Type().TypeID() != rtype.TypeID() {
 		panic("cannot EncodeRVecNew: only LElem128 supported")
@@ -355,7 +324,7 @@ func (encoder *encoder) EncodeRVecNew(values mpc_core.RVec, slots uint64, fracBi
 	zeroFloat := big.NewFloat(0)
 	for i := range slice {
 		if uint64(i) < slots {
-			slice[i] = bigComplex{values[i].(mpc_core.LElem128).ToBigFloat(fracBits), big.NewFloat(0)}
+			slice[i] = bigComplex{values[i].(mpc_core.LElem128).ToSignedBigFloat(fracBits), big.NewFloat(0)}
 		} else {
 			slice[i] = bigComplex{zeroFloat, zeroFloat}
 		}
@@ -395,7 +364,7 @@ func (encoder *encoder) EncodeRVecNew(values mpc_core.RVec, slots uint64, fracBi
 }
 
 
-func (encoder *encoder) DecodeRVec(plaintext *Plaintext, slots uint64) (res mpc_core.RVec) {
+func (encoder *encoder) DecodeRVec(plaintext *Plaintext, slots uint64, fracBits int) (res mpc_core.RVec) {
 	rtype := mpc_core.LElem128Zero
 
 	encoder.ckksContext.contextQ.InvNTTLvl(plaintext.Level(), plaintext.value, encoder.polypool)
@@ -435,13 +404,20 @@ func (encoder *encoder) DecodeRVec(plaintext *Plaintext, slots uint64) (res mpc_
 
 	encoder.fftBig(values, slots)
 
-	res = make(mpc_core.RVec, slots)
+	res = mpc_core.InitRVec(rtype.Zero(), int(slots))
 
 	tmpFloat := new(big.Float)
+	scale := big.NewFloat(0)
+	scale.SetInt(new(big.Int).Lsh(big.NewInt(1), uint(fracBits)))
 	for i := uint64(0); i < slots; i++ {
 		v := values[i].real
-		tmpFloat.Mul(v, big.NewFloat(plaintext.scale))
-		res[i] = rtype.FromBigInt(arithRound(tmpFloat))
+		if v.Sign() < 0 {
+			tmpFloat.Mul(tmpFloat.Neg(v), scale)
+			res[i] = res[i].Sub(rtype.FromBigInt(arithRound(tmpFloat)))
+		} else {
+			tmpFloat.Mul(v, scale)
+			res[i] = rtype.FromBigInt(arithRound(tmpFloat))
+		}
 	}
 
 	return res

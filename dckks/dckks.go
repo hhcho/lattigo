@@ -6,28 +6,28 @@ import (
 	"math"
 )
 
-type dckksContext struct {
+type Context struct {
 	params *ckks.Parameters
 
 	n uint64
 
 	gaussianSampler *ring.KYSampler
 
-	contextQ  *ring.Context
-	contextP  *ring.Context
-	contextQP *ring.Context
+	ContextQ  *ring.Context
+	ContextP  *ring.Context
+	ContextQP *ring.Context
 
-	alpha uint64
-	beta  uint64
+	Alpha uint64
+	Beta  uint64
 }
 
-func newDckksContext(params *ckks.Parameters) (context *dckksContext) {
+func NewContext(params *ckks.Parameters) (context *Context) {
 
 	if !params.IsValid() {
-		panic("cannot newDckksContext : params not valid (check if they where generated properly)")
+		panic("cannot NewContext : params not valid (check if they where generated properly)")
 	}
 
-	context = new(dckksContext)
+	context = new(Context)
 
 	context.params = params.Copy()
 
@@ -35,29 +35,29 @@ func newDckksContext(params *ckks.Parameters) (context *dckksContext) {
 
 	context.n = n
 
-	context.alpha = uint64(len(params.Pi))
-	context.beta = uint64(math.Ceil(float64(len(params.Qi)) / float64(context.alpha)))
+	context.Alpha = uint64(len(params.Pi))
+	context.Beta = uint64(math.Ceil(float64(len(params.Qi)) / float64(context.Alpha)))
 
 	var err error
-	if context.contextQ, err = ring.NewContextWithParams(n, params.Qi); err != nil {
+	if context.ContextQ, err = ring.NewContextWithParams(n, params.Qi); err != nil {
 		panic(err)
 	}
 
-	if context.contextP, err = ring.NewContextWithParams(n, params.Pi); err != nil {
+	if context.ContextP, err = ring.NewContextWithParams(n, params.Pi); err != nil {
 		panic(err)
 	}
 
-	if context.contextQP, err = ring.NewContextWithParams(n, append(params.Qi, params.Pi...)); err != nil {
+	if context.ContextQP, err = ring.NewContextWithParams(n, append(params.Qi, params.Pi...)); err != nil {
 		panic(err)
 	}
 
-	context.gaussianSampler = context.contextQP.NewKYSampler(params.Sigma, int(params.Sigma*6))
+	context.gaussianSampler = context.ContextQP.NewKYSampler(params.Sigma, int(params.Sigma*6))
 
 	return
 }
 
 // NewCRPGenerator creates a CRPGenerator
 func NewCRPGenerator(params *ckks.Parameters, key []byte) *ring.CRPGenerator {
-	ctx := newDckksContext(params)
-	return ring.NewCRPGenerator(key, ctx.contextQP)
+	ctx := NewContext(params)
+	return ring.NewCRPGenerator(key, ctx.ContextQP)
 }

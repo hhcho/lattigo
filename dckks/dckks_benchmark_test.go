@@ -26,7 +26,7 @@ func benchPublicKeyGen(b *testing.B) {
 
 		sk0Shards := params.sk0Shards
 
-		crpGenerator := ring.NewCRPGenerator(nil, params.dckksContext.contextQP)
+		crpGenerator := ring.NewCRPGenerator(nil, params.dckksContext.ContextQP)
 		crpGenerator.Seed([]byte{})
 		crp := crpGenerator.ClockNew()
 
@@ -81,7 +81,7 @@ func benchRelinKeyGen(b *testing.B) {
 		p.u = p.RKGProtocol.NewEphemeralKey(1.0 / 3.0)
 		p.s = sk0Shards[0].Get()
 		p.share1, p.share2, p.share3 = p.RKGProtocol.AllocateShares()
-		crpGenerator := ring.NewCRPGenerator(nil, params.dckksContext.contextQP)
+		crpGenerator := ring.NewCRPGenerator(nil, params.dckksContext.ContextQP)
 		crpGenerator.Seed([]byte{})
 		crp := make([]*ring.Poly, parameters.Beta())
 
@@ -291,7 +291,7 @@ func benchRotKeyGen(b *testing.B) {
 
 		params := gendckksTestContext(parameters)
 
-		contextKeys := params.dckksContext.contextQP
+		contextKeys := params.dckksContext.ContextQP
 		sk0Shards := params.sk0Shards
 
 		type Party struct {
@@ -348,7 +348,7 @@ func benchRefresh(b *testing.B) {
 		params := gendckksTestContext(parameters)
 
 		sk0Shards := params.sk0Shards
-		contextQ := params.dckksContext.contextQ
+		contextQ := params.dckksContext.ContextQ
 
 		levelStart := uint64(3)
 
